@@ -1,0 +1,2 @@
+llmaps @ git+https://github.com/greadr71/LLMaps.git
+pillow

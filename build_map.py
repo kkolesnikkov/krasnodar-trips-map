@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import os
+import sys
 
 from PIL import Image
 from llmaps import Map
@@ -11,17 +12,29 @@ from llmaps.layers import CircleLayer
 from llmaps.sources import FileSource
 from llmaps.components import Popup, Controls
 
+# Консоль Windows может быть в cp1251/cp1252 — не падаем на кириллице в пути.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="replace")
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(HERE, "data", "points.geojson")
 OUT_PATH = os.path.join(HERE, "map.html")
-CURSOR_SRC = r"C:\Users\fedor\.zcode\cli\image-cache\sess_86ff2eb3-33f2-48b7-b414-9ef3a0ee10d3\image-6d3c44ababbd260d386326ab4b0dcea1.png"
+# Картинка курсора лежит в репозитории: сборка не зависит от локальных путей.
+CURSOR_SRC = os.path.join(HERE, "assets", "bus.png")
 
 CURSOR_DATA_URI = None
+CURSOR_SIZE = None
 
 
 def make_cursor_data_uri():
-    """Автобус из PNG -> курсор 44px с прозрачностью, data URI."""
-    global CURSOR_DATA_URI
+    """Автобус из PNG -> курсор 44px с прозрачностью, data URI.
+
+    Если картинки нет, возвращает None: карта собирается с обычным курсором.
+    """
+    global CURSOR_DATA_URI, CURSOR_SIZE
+    if not os.path.exists(CURSOR_SRC):
+        print("WARN: нет assets/bus.png — собираю без курсора-автобуса")
+        return None
     im = Image.open(CURSOR_SRC).convert("RGBA")
     im = im.crop(im.getbbox())
     target_w = 44
@@ -30,7 +43,8 @@ def make_cursor_data_uri():
     buf = io.BytesIO()
     im.save(buf, format="PNG", optimize=True)
     CURSOR_DATA_URI = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-    return target_w, target_h
+    CURSOR_SIZE = (target_w, target_h)
+    return CURSOR_SIZE
 
 
 # ---------- данные ----------
@@ -69,6 +83,13 @@ for f in fc["features"]:
 TMP_DATA_PATH = os.path.join(HERE, "data", "points_display.geojson")
 with open(TMP_DATA_PATH, "w", encoding="utf-8") as fh:
     json.dump(fc, fh, ensure_ascii=False)
+
+# Границы данных: нужны для центра карты и для точной подгонки в браузере.
+lons = [f["geometry"]["coordinates"][0] for f in fc["features"]]
+lats = [f["geometry"]["coordinates"][1] for f in fc["features"]]
+MIN_LON, MAX_LON = min(lons), max(lons)
+MIN_LAT, MAX_LAT = min(lats), max(lats)
+CENTER = [round((MIN_LON + MAX_LON) / 2, 6), round((MIN_LAT + MAX_LAT) / 2, 6)]
 
 # ---------- шкалы ----------
 # Радиус: площадь круга ~ населению (r ~ sqrt(pop)), зажим сверху
@@ -123,21 +144,30 @@ popup = Popup(
 )
 
 m = Map(
-    center=[39.0, 45.2],
+    center=CENTER,
     zoom=7,
     title="До Краснодара доеду?",
+    # Растровая подложка CARTO. style_url (OpenFreeMap Positron) не задаём:
+    # tiles.openfreemap.org не отвечает из России, и карта оставалась пустой.
     tiles="carto-light",
-    style_url="https://tiles.openfreemap.org/styles/positron",
     locale="ru-RU",
     use_compression=False,  # geobuf требует pbf/pako с CDN; для 102 точек встраиваем GeoJSON напрямую
 )
 m.add_layer(layer)
 m.add_component(popup)
 m.add_component(Controls(zoom=True, scale=True, fullscreen=True))
-m.auto_extent()
+# auto_extent() не используем: LLMaps 2.0 считает zoom как log2(360 / span) - 1
+# без учёта размера экрана и для края выдаёт zoom 5 (точки — крошечное пятно).
+# Центр задан выше, точную подгонку под экран делает fitBounds в браузере.
 
 # ---------- курсор-автобус ----------
-cw, ch = make_cursor_data_uri()
+CURSOR_SIZE = make_cursor_data_uri()
+cursor_rule = ""
+if CURSOR_DATA_URI:
+    cw, ch = CURSOR_SIZE
+    cursor_rule = (
+        f"* {{ cursor: url('{CURSOR_DATA_URI}') {max(0, cw // 2 - 2)} {ch // 2}, auto !important; }}"
+    )
 
 # ---------- HSE-шапка и легенда ----------
 HEADER_HTML = f"""
@@ -185,7 +215,7 @@ CSS = f"""
   --hse-dark: #1A1A1A;
 }}
 html, body {{ font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif; color: var(--hse-dark); }}
-* {{ cursor: url('{CURSOR_DATA_URI}') {cw // 2 - 2} {ch // 2}, auto !important; }}
+{cursor_rule}
 
 /* ---------- левая колонка: шапка + легенда ---------- */
 .hse-left {{
@@ -264,13 +294,57 @@ m.add_custom_html(HEADER_HTML)
 m.add_custom_css(CSS)
 m.add_custom_js(
     """
-document.getElementById('hse-legend-toggle').addEventListener('click', function () {
+(function () {
+  var toggle = document.getElementById('hse-legend-toggle');
   var lg = document.getElementById('hse-legend');
-  lg.classList.toggle('collapsed');
-  this.textContent = lg.classList.contains('collapsed') ? '+' : '−';
-});
+  if (!toggle || !lg) return;
+  toggle.addEventListener('click', function () {
+    lg.classList.toggle('collapsed');
+    toggle.textContent = lg.classList.contains('collapsed') ? '+' : '−';
+  });
+})();
 """
 )
+
+# Точная подгонка границ под экран с учётом карточки-шапки слева.
+FIT_JS = """
+(function () {
+  var BOUNDS = [[__MIN_LON__, __MIN_LAT__], [__MAX_LON__, __MAX_LAT__]];
+
+  function fitKrai() {
+    var map = window.llmaps_map;
+    if (!map || !map.fitBounds) return;
+    // Не перебиваем позицию, сохранённую в ссылке (#7/45.2/39.0).
+    if (/^#\\d/.test(window.location.hash)) return;
+
+    var panel = document.querySelector('.hse-left');
+    var rect = panel ? panel.getBoundingClientRect() : null;
+    var pad;
+    if (rect && window.innerWidth < 760) {
+      pad = {
+        top: Math.min(rect.bottom + 12, window.innerHeight * 0.55),
+        bottom: 24, left: 16, right: 16
+      };
+    } else if (rect) {
+      pad = { top: 24, bottom: 40, left: rect.right + 16, right: 60 };
+    } else {
+      pad = { top: 24, bottom: 40, left: 60, right: 60 };
+    }
+    map.fitBounds(BOUNDS, { padding: pad, duration: 0, maxZoom: 10 });
+  }
+
+  if (window.llmaps_map) fitKrai();
+  else document.addEventListener('DOMContentLoaded', fitKrai);
+  window.addEventListener('load', fitKrai);
+})();
+"""
+FIT_JS = (
+    FIT_JS.replace("__MIN_LON__", repr(MIN_LON))
+    .replace("__MIN_LAT__", repr(MIN_LAT))
+    .replace("__MAX_LON__", repr(MAX_LON))
+    .replace("__MAX_LAT__", repr(MAX_LAT))
+)
+m.add_custom_js(FIT_JS)
 
 m.save(OUT_PATH)
 os.remove(TMP_DATA_PATH)

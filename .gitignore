@@ -1,3 +1,6 @@
 __pycache__/
 data/
 *.pyc
+.venv/
+venv/
+shot_*.png

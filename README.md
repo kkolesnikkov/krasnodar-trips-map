@@ -6,20 +6,26 @@
 - **Цвет круга** — поездок в год на человека: градиент от белого к красному (квантильная шкала); серые круги — нет данных
 - **Клик по кругу** — попап с названием, населением, поездками на человека, пассажирооборотом и автобусами на 1 000 человек
 
-Карта построена библиотекой [LLMaps](https://github.com/greadr71/LLMaps) (MapLibre GL), подложка — OpenFreeMap Positron, оформление — по мотивам design.hse.ru, курсор — автобус.
+Карта построена библиотекой [LLMaps](https://github.com/greadr71/LLMaps) (MapLibre GL), подложка — растровые тайлы CARTO Light, оформление — по мотивам design.hse.ru, курсор — автобус.
 
 ## Онлайн
 
-Карта публикуется через GitHub Pages: откройте страницу проекта или перейдите на
-`https://kkolesnikkov.github.io/krasnodar-trips-map/map.html`
+Карта публикуется через GitHub Pages:
+
+- <https://kkolesnikkov.github.io/krasnodar-trips-map/> — корень сайта, сразу открывает карту
+- <https://kkolesnikkov.github.io/krasnodar-trips-map/map.html> — сама карта
 
 ## Воспроизведение сборки
 
 ```bash
-pip install git+https://github.com/greadr71/LLMaps.git pillow
+pip install -r requirements.txt
 python prepare_data.py   # CSV -> data/points.geojson
 python build_map.py      # data/points.geojson -> map.html
 ```
+
+`data/points.geojson` — промежуточный файл, он не коммитится (см. `.gitignore`).
+Готовая карта `map.html` самодостаточна: данные и стили встроены внутрь, поэтому
+для GitHub Pages не нужны ни сборка, ни отдельные файлы данных.
 
 ## Файлы
 
@@ -29,3 +35,11 @@ python build_map.py      # data/points.geojson -> map.html
 | `prepare_data.py` | конвертация CSV в GeoJSON |
 | `build_map.py` | сборка интерактивной карты |
 | `map.html` | готовая карта (автономный файл) |
+| `index.html` | редирект с корня сайта на `map.html` |
+| `assets/bus.png` | картинка курсора-автобуса |
+
+## GitHub Pages
+
+Публикация настроена через ветку `main`, каталог `/` (Deploy from a branch).
+Файл `.nojekyll` отключает обработку Jekyll, поэтому GitHub Pages отдаёт файлы как есть.
+После `git push` в `main` сайт обновляется автоматически за 1–2 минуты.

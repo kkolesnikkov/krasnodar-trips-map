@@ -4,6 +4,11 @@ import csv
 import glob
 import json
 import os
+import sys
+
+# Консоль Windows может быть в cp1251/cp1252 — не падаем на кириллице в выводе.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="replace")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # Имя файла может отличаться нормализацией Unicode — ищем по маске
