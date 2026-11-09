@@ -129,6 +129,7 @@ m = Map(
     tiles="carto-light",
     style_url="https://tiles.openfreemap.org/styles/positron",
     locale="ru-RU",
+    use_compression=False,  # geobuf требует pbf/pako с CDN; для 102 точек встраиваем GeoJSON напрямую
 )
 m.add_layer(layer)
 m.add_component(popup)
@@ -194,18 +195,18 @@ html, body {{ font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif; color: 
 }}
 .hse-left > * {{ pointer-events: auto; }}
 
-/* ---------- шапка (без подложки) ---------- */
-.hse-header {{ max-width: 415px; }}
+/* ---------- шапка (карточка) ---------- */
+.hse-header {{
+  max-width: 415px; padding: 20px 24px 18px;
+  background: #FFFFFF; border: 2px solid var(--hse-dark);
+  box-shadow: 6px 6px 0 var(--hse-red);
+}}
 .hse-header h1 {{
   margin: 6px 0 8px; font-family: 'Inter Tight', 'Inter', Arial, sans-serif;
-  font-weight: 900; font-size: 34px; line-height: 1.02; letter-spacing: -0.02em;
+  font-weight: 900; font-size: 32px; line-height: 1.02; letter-spacing: -0.02em;
   text-transform: uppercase; color: var(--hse-dark);
-  text-shadow: 0 0 12px rgba(255,255,255,0.9), 0 0 4px rgba(255,255,255,0.9);
 }}
-.hse-header p {{
-  margin: 0; font-size: 13px; line-height: 1.45; color: #3D3D3D; max-width: 360px;
-  text-shadow: 0 0 10px rgba(255,255,255,0.95), 0 0 4px rgba(255,255,255,0.95);
-}}
+.hse-header p {{ margin: 0; font-size: 13px; line-height: 1.45; color: #3D3D3D; }}
 .hse-kicker {{
   display: flex; align-items: center; gap: 8px;
   font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
@@ -213,14 +214,15 @@ html, body {{ font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif; color: 
 }}
 .hse-square {{ width: 12px; height: 12px; background: var(--hse-red); display: inline-block; }}
 
-/* ---------- легенда (без подложки) ---------- */
-.hse-legend {{ max-width: 300px; }}
+/* ---------- легенда (карточка) ---------- */
+.hse-legend {{
+  max-width: 300px; padding: 14px 16px 12px;
+  background: #FFFFFF; border: 2px solid var(--hse-dark);
+  box-shadow: 6px 6px 0 var(--hse-dark);
+}}
 .hse-legend-head {{ display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }}
 .hse-legend-body {{ margin-top: 4px; }}
-.hse-legend-title {{
-  font-weight: 700; font-size: 12.5px; margin-bottom: 6px;
-  text-shadow: 0 0 8px rgba(255,255,255,0.95), 0 0 3px rgba(255,255,255,0.95);
-}}
+.hse-legend-title {{ font-weight: 700; font-size: 12.5px; margin-bottom: 6px; }}
 .hse-legend-note {{ font-size: 10.5px; color: #6B6B6B; margin-top: 2px; }}
 .hse-legend-toggle {{
   width: 22px; height: 22px; padding: 0;
@@ -229,7 +231,6 @@ html, body {{ font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif; color: 
 }}
 .hse-legend.collapsed .hse-legend-body {{ display: none; }}
 .hse-size-legend {{ overflow: visible; }}
-.hse-size-legend circle {{ fill: rgba(255,255,255,0.25); }}
 .hse-gradient {{
   height: 14px; border: 1px solid var(--hse-dark);
   background: linear-gradient(to right, #FFFFFF, #FFD2C9, #FF8A73, #EE3F2D, #9C1008);
