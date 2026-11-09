@@ -22,6 +22,16 @@ OUT_PATH = os.path.join(HERE, "map.html")
 # Картинка курсора лежит в репозитории: сборка не зависит от локальных путей.
 CURSOR_SRC = os.path.join(HERE, "assets", "bus.png")
 
+# Необязательный ключ CARTO. Без него используется растровая подложка OSM;
+# с ключом — векторный стиль Voyager. Ключ не коммитится, а передаётся
+# переменной окружения: CARTO_API_KEY=... python build_map.py
+CARTO_API_KEY = os.environ.get("CARTO_API_KEY", "").strip()
+CARTO_STYLE_URL = (
+    "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json?key=" + CARTO_API_KEY
+    if CARTO_API_KEY
+    else None
+)
+
 CURSOR_DATA_URI = None
 CURSOR_SIZE = None
 
@@ -147,9 +157,11 @@ m = Map(
     center=CENTER,
     zoom=7,
     title="До Краснодара доеду?",
-    # Растровая подложка CARTO. style_url (OpenFreeMap Positron) не задаём:
-    # tiles.openfreemap.org не отвечает из России, и карта оставалась пустой.
-    tiles="carto-light",
+    # По умолчанию растровая подложка OSM: она открывается из России без ключа.
+    # OpenFreeMap недоступен, CARTO без ключа отдаёт водяные знаки.
+    # Если задан CARTO_API_KEY, используется векторный Voyager.
+    style_url=CARTO_STYLE_URL,
+    tiles="osm",
     locale="ru-RU",
     use_compression=False,  # geobuf требует pbf/pako с CDN; для 102 точек встраиваем GeoJSON напрямую
 )
@@ -218,6 +230,7 @@ html, body {{ font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif; color: 
 {cursor_rule}
 
 /* ---------- левая колонка: шапка + легенда ---------- */
+.hse-left, .hse-header, .hse-legend {{ box-sizing: border-box; }}
 .hse-left {{
   position: absolute; top: 16px; left: 16px; z-index: 50;
   width: 415px; max-width: calc(100vw - 32px);
@@ -288,6 +301,15 @@ html, body {{ font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif; color: 
 .maplibregl-popup-content tr:first-child td {{ font-weight: 700; font-size: 13px; color: var(--hse-dark); }}
 .maplibregl-popup-content tr:first-child td:first-child {{ color: var(--hse-dark); }}
 .maplibregl-popup-tip {{ border-top-color: #1A1A1A !important; }}
+
+/* ---------- мобильная вёрстка ---------- */
+@media (max-width: 760px) {{
+  .hse-left {{ top: 12px; left: 12px; width: calc(100vw - 24px); gap: 10px; }}
+  .hse-header {{ padding: 14px 16px 12px; box-shadow: 4px 4px 0 var(--hse-red); }}
+  .hse-header h1 {{ font-size: 26px; margin: 4px 0 6px; }}
+  .hse-header p {{ font-size: 12px; }}
+  .hse-legend {{ max-width: none; padding: 12px 14px; }}
+}}
 """
 
 m.add_custom_html(HEADER_HTML)
@@ -298,6 +320,11 @@ m.add_custom_js(
   var toggle = document.getElementById('hse-legend-toggle');
   var lg = document.getElementById('hse-legend');
   if (!toggle || !lg) return;
+  // На телефоне легенда по умолчанию свёрнута, иначе она закрывает карту.
+  if (window.innerWidth < 760) {
+    lg.classList.add('collapsed');
+    toggle.textContent = '+';
+  }
   toggle.addEventListener('click', function () {
     lg.classList.toggle('collapsed');
     toggle.textContent = lg.classList.contains('collapsed') ? '+' : '−';
@@ -305,6 +332,33 @@ m.add_custom_js(
 })();
 """
 )
+
+# Приглушаем пёструю растровую подложку OSM под светлый стиль карты.
+BASE_STYLE_JS = """
+(function () {
+  var PAINT = {
+    'raster-saturation': -0.82,
+    'raster-contrast': 0.08,
+    'raster-brightness-min': 0.42,
+    'raster-brightness-max': 1.0
+  };
+  function soften() {
+    var map = window.llmaps_map;
+    if (!map || !map.getLayer('llmaps-base')) return;
+    Object.keys(PAINT).forEach(function (key) {
+      try { map.setPaintProperty('llmaps-base', key, PAINT[key]); } catch (e) {}
+    });
+  }
+  function boot() {
+    var map = window.llmaps_map;
+    if (!map) { document.addEventListener('DOMContentLoaded', boot); return; }
+    soften();
+    map.on('style.load', soften);
+  }
+  boot();
+})();
+"""
+m.add_custom_js(BASE_STYLE_JS)
 
 # Точная подгонка границ под экран с учётом карточки-шапки слева.
 FIT_JS = """
